@@ -1,55 +1,76 @@
 <?php
 require_once "simple_html_dom.php";
-// Initialize a cURL session
-$ch = curl_init();
 
-// Set the URL you want to fetch
-$url = $_GET['url'];
+class ProductScraper {
+    private $url;
+    private $cookie;
+    private $html;
 
-// Set the cURL options
-curl_setopt($ch, CURLOPT_URL, $url);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    public function __construct($url, $cookie) {
+        $this->url = $url;
+        $this->cookie = $cookie;
+    }
 
-// Set the cookie with the ASP.NET_SessionId
-$cookie = "TarganTkn=zup4byclcrx3watoz5mqyrfx";
-curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-    "Cookie: $cookie"
-)
-);
+    public function fetchPage() {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $this->url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array("Cookie: {$this->cookie}"));
+        
+        $response = curl_exec($ch);
+        
+        if (curl_errno($ch)) {
+            echo 'Error: ' . curl_error($ch);
+            curl_close($ch);
+            return false;
+        }
+        
+        curl_close($ch);
+        $this->html = str_get_html($response);
+        
+        if (!$this->html) {
+            echo json_encode(['ok' => false, 'description' => 'Failed to parse HTML']);
+            return false;
+        }
 
-// Execute the cURL request
-$response = curl_exec($ch);
+        return true;
+    }
 
-// Check for errors
-if (curl_errno($ch)) {
-    echo 'Error:' . curl_error($ch);
+    public function extractData() {
+        if (!$this->html) return null;
+
+        $data = [];
+        $data["shop_name"] = trim($this->html->find('.ShopName', 0)->plaintext);
+        $data["product_name"] = trim($this->html->find('h1.PDTitle', 0)->plaintext);
+        $data["image"] = trim($this->html->find('.large-img img', 0)->src);
+        $data["price"] = $this->html->find('.PDPrice div', 1)->plaintext;
+        
+        if (preg_match("/متاسفانه/", $this->html->find('.PDPrice2', 0)->plaintext)) {
+            $data["available"] = false;
+        } else if ($data["shop_name"] != "") {
+            $data["available"] = true;
+        } else {
+            $data["available"] = null;
+        }
+
+        return $data;
+    }
+
+    public function getData() {
+        if ($this->fetchPage()) {
+            return json_encode($this->extractData());
+        }
+        return json_encode(['ok' => false, 'description' => 'Failed to fetch page']);
+    }
+}
+
+// Usage
+$url = $_GET['url'] ?? null;
+$cookie = "TarganTkn=33u4jrxnng4tqaocryufblv1";
+
+if ($url) {
+    $scraper = new ProductScraper($url, $cookie);
+    echo $scraper->getData();
 } else {
-    // Output the response
-    //echo $response;
+    echo json_encode(['ok' => false, 'description' => 'No URL provided']);
 }
-// Close the cURL session
-curl_close($ch);
-
-$html = str_get_html($response);
-if (!$html) {
-    echo json_encode(['ok' => false, 'description' => 'Failed to parse HTML']);
-    exit;
-}
-
-$data["shop_name"] = trim($html->find('.ShopName',0)->plaintext);
-$data["product_name"] = trim($html->find('h1.PDTitle', 0)->plaintext);
-$data["image"] = trim($html->find('.large-img', 0)->find("img",0)->src);
-$data["price"] = $html->find('.PDPrice', 0)->find('div', 1)->plaintext;
-//if ($html->find('.PDPrice2', 0)->plaintext == "متاسفانه این کالا در حال حاضر موجود نیست.") {
-if (preg_match("/متاسفانه/",$html->find('.PDPrice2', 0)->plaintext)) {
-    //$data["available"] = False;
-    $data["available"] = False;
-} else if($data["shop_name"]!=""){
-    $data["available"] = True;
-}
-else{
-    $data["available"] = null;
-}
-
-
-echo json_encode($data);
